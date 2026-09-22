@@ -33,10 +33,51 @@ namespace PoliceChase.AI
             playerTransform = player;
         }
 
+        GameObject CreatePolicePrefab()
+        {
+            GameObject go = new GameObject("PoliceCarPrefab");
+            var rb = go.AddComponent<Rigidbody>();
+            var config = ScriptableObject.CreateInstance<Vehicle.VehicleConfig>();
+            config.Mass = 1600f;
+            config.MaxSpeed = 30.3f;
+            config.MotorForce = 2600f;
+            config.BrakeForce = 8500f;
+            config.SteerAngle = 30f;
+            config.BodyColor = Color.blue;
+
+            var physics = go.AddComponent<Vehicle.VehiclePhysics>();
+            physics.Config = config;
+            var wheels = go.AddComponent<Vehicle.WheelSystem>();
+            var controller = go.AddComponent<Vehicle.VehicleController>();
+            controller.Config = config;
+            var policeCar = go.AddComponent<Vehicle.PoliceCar>();
+            policeCar.Controller = controller;
+            var route = go.AddComponent<RoutePlanner>();
+            var pred = go.AddComponent<TrajectoryPrediction>();
+            var ai = go.AddComponent<PoliceAI>();
+
+            var col = go.AddComponent<BoxCollider>();
+            col.size = new Vector3(1.8f, 0.8f, 4.2f);
+            col.center = new Vector3(0, 0.6f, 0);
+
+            var modelGO = new GameObject("CarModel");
+            modelGO.transform.SetParent(go.transform);
+            modelGO.transform.localPosition = Vector3.zero;
+            var factory = modelGO.AddComponent<Vehicle.CarModelFactory>();
+            factory.Initialize(config, modelGO.transform);
+
+            go.tag = "Police";
+            go.SetActive(false);
+            return go;
+        }
+
         public void SpawnPolice(int count, AIDifficulty difficulty)
         {
             if (playerTransform == null) return;
             ClearPolice();
+
+            if (PolicePrefab == null)
+                PolicePrefab = CreatePolicePrefab();
 
             for (int i = 0; i < count; i++)
             {
