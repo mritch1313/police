@@ -8,14 +8,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    name: Build Police Chase APK
+  verify:
+    name: Verify Project Structure
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           lfs: true
 
       - name: Check project structure
@@ -27,6 +26,56 @@ jobs:
           test -f Assets/Scenes/Main.unity || (echo "Missing Main.unity" && exit 1)
           test -d Assets/Scripts || (echo "Missing Scripts" && exit 1)
           echo "Structure OK"
+          cat ProjectSettings/ProjectVersion.txt
+          cat Packages/manifest.json
+
+      - name: Check C# syntax (basic)
+        run: |
+          echo "Checking C# files..."
+          find Assets/Scripts -name "*.cs" | wc -l
+          # Check for obvious errors: duplicate class names, missing braces
+          python3 - << 'PY'
+          import glob
+          errors=0
+          for path in glob.glob("Assets/Scripts/**/*.cs", recursive=True):
+              with open(path, 'r', errors='ignore') as f:
+                  content=f.read()
+                  if content.count('{') != content.count('}'):
+                      print(f"BRACE MISMATCH: {path}")
+                      errors+=1
+                  if "class" not in content and "interface" not in content and "enum" not in content and "struct" not in content and "namespace" not in content:
+                      # Allow empty? check
+                      pass
+          if errors>0:
+              exit(1)
+          print("C# syntax basic check passed")
+          PY
+
+      - name: Check Unity version
+        run: |
+          echo "Unity version: $(cat ProjectSettings/ProjectVersion.txt)"
+          grep -q "6000.3" ProjectSettings/ProjectVersion.txt || (echo "Wrong Unity version" && exit 1)
+
+      - name: Check key scripts
+        run: |
+          test -f Assets/Scripts/Vehicle/VehicleController.cs
+          test -f Assets/Scripts/AI/PoliceAI.cs
+          test -f Assets/Scripts/World/WorldStreamer.cs
+          test -f Assets/Scripts/Core/GameState.cs
+          test -f Assets/Editor/BuildScript.cs
+          echo "Key scripts OK"
+
+  build:
+    name: Build Police Chase APK
+    runs-on: ubuntu-latest
+    needs: verify
+    if: ${{ secrets.UNITY_LICENSE != '' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
 
       - name: Cache Library
         uses: actions/cache@v4
@@ -50,6 +99,7 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
           df -h
 
       - name: Build Unity project
@@ -63,6 +113,7 @@ jobs:
           unityVersion: 6000.3.0f1
           buildMethod: BuildScript.BuildAndroidInternal
           customParameters: -logFile /tmp/unity.log -stackTraceLogType Full -quit -batchmode -nographics
+          allowDirtyBuild: true
 
       - name: Show Unity log on failure
         if: failure()
@@ -72,6 +123,8 @@ jobs:
           echo "=== Editor log ==="
           find . -name "Editor.log" -exec cat {} \; || echo "No editor log"
           ls -la Builds/ || echo "No Builds folder"
+          echo "=== Library logs ==="
+          ls -la Library/ || true
 
       - name: Check APK exists
         run: |
@@ -80,10 +133,12 @@ jobs:
           APK=$(find Builds -name "*.apk" | head -n 1)
           if [ -z "$APK" ]; then
             echo "ERROR: No APK found!"
+            echo "Build failed to produce APK - check logs"
             exit 1
           fi
           echo "APK found: $APK"
           ls -lh "$APK"
+          echo "BUILD VERIFIED"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -104,9 +159,26 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+  build-skipped:
+    name: Build Skipped (No License)
+    runs-on: ubuntu-latest
+    needs: verify
+    if: ${{ secrets.UNITY_LICENSE == '' }}
+    steps:
+      - name: Notify
+        run: |
+          echo "UNITY_LICENSE secret not set - skipping real Unity build"
+          echo "This is expected in forks without license"
+          echo "Project structure verification passed in previous job"
+          echo "BUILD NOT VERIFIED - requires Unity license in GitHub secrets"
+          echo "To enable full build, add UNITY_LICENSE, UNITY_EMAIL, UNITY_PASSWORD secrets"
+          echo "See https://game.ci/docs/github/activation"
+
   test:
     name: Run EditMode tests
     runs-on: ubuntu-latest
+    needs: verify
+    if: ${{ secrets.UNITY_LICENSE != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -129,6 +201,7 @@ jobs:
           unityVersion: 6000.3.0f1
           testMode: EditMode
           customParameters: -logFile /tmp/test.log
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
