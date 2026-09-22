@@ -1,0 +1,19 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!148 &1
+XRSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 3
+  m_HolographicTrackingLossScreen: {fileID: 0}
+  m_StereoRenderingPath: 0
+  m_DayDreamIcon: {fileID: 0}
+  m_DayDreamIntendedPlatforms: 0
+  m_OcclusionMaskScale: 0
+  m_HolographicTrackingLossScreenWidth: 0
+  m_HolographicTrackingLossScreenHeight: 0
+  m_EnableDepthBufferSharing: 0
+  m_EnableSinglePass: 0
+  m_TangoSupported: 0
+  m_StereoWidescreenMode: 0
+  m_StereoBodyTracking: 0
+  m_StereoDisplayRemoting: 0

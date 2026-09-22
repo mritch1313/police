@@ -1,0 +1,139 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ "main", "arena/*" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Police Chase APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Check project structure
+        run: |
+          echo "Checking Unity project structure..."
+          ls -la
+          test -f Packages/manifest.json || (echo "Missing Packages/manifest.json" && exit 1)
+          test -f ProjectSettings/ProjectVersion.txt || (echo "Missing ProjectVersion.txt" && exit 1)
+          test -f Assets/Scenes/Main.unity || (echo "Missing Main.unity" && exit 1)
+          test -d Assets/Scripts || (echo "Missing Scripts" && exit 1)
+          echo "Structure OK"
+
+      - name: Cache Library
+        uses: actions/cache@v4
+        with:
+          path: Library
+          key: Library-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Library-
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle
+            Library/Bee/Android
+          key: gradle-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: |
+            gradle-
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          df -h
+
+      - name: Build Unity project
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          targetPlatform: Android
+          unityVersion: 6000.3.0f1
+          buildMethod: BuildScript.BuildAndroidInternal
+          customParameters: -logFile /tmp/unity.log -stackTraceLogType Full -quit -batchmode -nographics
+
+      - name: Show Unity log on failure
+        if: failure()
+        run: |
+          echo "=== Unity log ==="
+          cat /tmp/unity.log || echo "No log file"
+          echo "=== Editor log ==="
+          find . -name "Editor.log" -exec cat {} \; || echo "No editor log"
+          ls -la Builds/ || echo "No Builds folder"
+
+      - name: Check APK exists
+        run: |
+          echo "Checking for APK..."
+          ls -lh Builds/ || echo "Builds folder missing"
+          APK=$(find Builds -name "*.apk" | head -n 1)
+          if [ -z "$APK" ]; then
+            echo "ERROR: No APK found!"
+            exit 1
+          fi
+          echo "APK found: $APK"
+          ls -lh "$APK"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PoliceChase-APK
+          path: Builds/*.apk
+          retention-days: 14
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Build-Logs
+          path: |
+            /tmp/unity.log
+            Library/Bee/Android/Prj/IL2CPP/Gradle/**/*.log
+            Logs/
+          retention-days: 7
+          if-no-files-found: warn
+
+  test:
+    name: Run EditMode tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Cache Library
+        uses: actions/cache@v4
+        with:
+          path: Library
+          key: Library-test-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+
+      - name: Run tests
+        uses: game-ci/unity-test-runner@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          unityVersion: 6000.3.0f1
+          testMode: EditMode
+          customParameters: -logFile /tmp/test.log
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Test-Results
+          path: artifacts
+          retention-days: 7
